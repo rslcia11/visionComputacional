@@ -1,0 +1,54 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches and temporary files
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Deep Learning Models & Weights (descargados automáticamente en runtime)
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# Backups y archivos temporales locales
+data/raw/backup_original/
+data/raw/corridor_background.jpg
+data/raw/test_composite.jpg
+
+# IDEs y editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Documentos, enunciados y notas de trabajo internas
+*.docx
+*.doc
+*.pdf
+BITACORA.md
+*bitacora*
+*Bitacora*
+*Prueba*
+*prueba_tecnica*
+*pruebaTecnica*
+notes/
+notas/
+*.tmp
