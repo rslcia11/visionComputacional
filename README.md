@@ -131,59 +131,30 @@ Tras la ejecución, la carpeta `data/output/` contiene:
 
 ---
 
-## 5. Defensa Técnica y Justificación de Requerimientos
+## 5. Pruebas Automatizadas
 
-### 1. ¿Cómo se mantienen los identificadores dentro de una cámara?
-Se emplea **ByteTrack** acoplado a un filtro de Kalman. Cada detección de YOLO se asocia temporalmente mediante solapamiento de cajas (IoU). Las detecciones con oclusión parcial conservan su `Local ID` gracias a una cola de persistencia (*buffer de oclusión* de 30 frames). Si la persona desaparece de la escena por más tiempo, el track se cierra limpiamente y la próxima persona en ingresar recibe el siguiente `Local ID` disponible.
-
-### 2. ¿Cómo se determina si una persona de la Cámara B corresponde a otra observada en la Cámara A?
-1. Cada recorte de persona se escala a $256 \times 128$ y se procesa con **OSNet x0.25**, obteniendo una firma $u \in \mathbb{R}^{512}$ con $\|u\|_2 = 1$.
-2. Se calcula la **similitud coseno** frente a la galería de identidades registradas:
-   $$S_C(u, v) = u \cdot v$$
-3. Si el puntaje supera el umbral estricto $\tau_{reid} = 0.70$, se asocia a la identidad preexistente y se actualiza su embedding de forma controlada mediante promedio móvil exponencial (EMA):
-   $$\text{emb}_{\text{nuevo}} = (1 - \alpha) \cdot \text{emb}_{\text{galería}} + \alpha \cdot u$$
-4. Si ninguna identidad en la galería supera el umbral, la asociación es rechazada y se crea un nuevo `GLOBAL ID`.
-
-### 3. ¿Qué situaciones provocan errores y cómo se gestionan?
-* **Vestimentas idénticas u oscuras:** Los extractores simples (o basados en histogramas HSV) colapsan cuando dos personas visten ropa negra (ambos caen en saturación cero). OSNet resuelve esto analizando relaciones de aspecto posturales, texturas de tejido y calzado. Dos personas distintas con ropa negra dan una similitud de apenas **0.4967**, quedando muy por debajo del umbral de $0.70$.
-* **Truncamiento en bordes del sensor:** Cuando una persona ingresa a la cámara, los primeros cuadros muestran solo una fracción de su cuerpo. El matcher implementa una ventana de calentamiento de 15 fotogramas: una vez que la persona entra por completo y la silueta se estabiliza, se confirma la unificación global.
-* **Preservación de identidad en la misma cámara:** Una persona no puede estar en dos lugares distintos a la vez en la misma cámara. El matcher descarta candidatos si ese Global ID ya está activo en otro track local simultáneo en ese mismo fotograma.
-
-### 4. ¿Por qué se utilizó composición controlada en los videos de prueba?
-Dado que los clips públicos de stock no disponían de los mismos actores transitando entre dos cámaras sincronizadas, se diseñó un protocolo de **Verdad Fundamental (Ground Truth)**:
-* Ambas cámaras operan fijas en sus respectivos escenarios (Pasillo CCTV-01 y Salón CCTV-02) sin cambios de fondo.
-* Se utilizó segmentación poligonal (`yolov8n-seg`) para proyectar el tránsito de dos de los actores a través del pasillo antes de su ingreso al salón.
-* Esto permite evaluar numéricamente con 100% de certeza que el sistema tiene **cero falsos positivos y 100% de recall** en los actores compartidos.
-* En un despliegue de producción real, el sistema ingiere flujos RTSP directos de cámaras físicas sin requerir ninguna etapa de composición.
-
-### 5. ¿Qué cambios se realizarían para adaptar la solución a un entorno multi-cámara en tiempo real (50+ cámaras)?
-1. **Arquitectura Distribuida Edge-to-Cloud:** Desacoplar detección y extracción. Nodos locales (Jetson Orin o mini-PCs) ejecutan YOLO y OSNet en cada cámara y envían únicamente metadatos (`bbox`, `timestamp`, vector de 512-D) mediante Kafka o gRPC.
-2. **Indexación Vectorial Escalable:** Sustituir la búsqueda lineal por motores de vecinos más cercanos aproximados (*Approximate Nearest Neighbors - ANN*) como **FAISS** o **Milvus**, permitiendo asociaciones sub-milisegundo ($O(\log N)$) frente a miles de identidades.
-3. **Restricciones Espacio-Temporales (Spatio-Temporal Gating):** Modelar la topología del edificio (matriz de tiempos de tránsito entre cámaras). Si la distancia física entre la Cámara 1 y la Cámara 50 requiere al menos 30 segundos de caminata, se descartan candidatos que aparezcan antes, eliminando colisiones espurias en campus grandes.
-
----
-
-## 6. Pruebas Automatizadas
-
-El proyecto incluye dos suites de pruebas unitarias y de estrés:
+El proyecto incluye suites de pruebas unitarias y de estrés para validar el pipeline numérico:
 
 ```bash
-# 1. Pruebas de integración y dimensiones
+# 1. Pruebas de integración y dimensiones de embeddings
 python tests/test_pipeline.py
 
 # 2. Pruebas de estrés (invarianza lumínica, tolerancia a ruido y rechazo estricto)
 python tests/test_stress_and_edge_cases.py
 ```
 
-Ambas pruebas validan la invarianza del embedding ante penumbra (-40% luz), variaciones de escala, compresión de video y estabilidad temporal del filtro EMA.
+Ambas pruebas certifican:
+* Invarianza de embeddings ante penumbra (-40% iluminación) y transformaciones afines.
+* Rechazo estricto de falsos positivos en personas no coincidentes (similitud $< 0.50$).
+* Estabilidad temporal de la galería bajo actualización adaptativa EMA.
 
 ---
 
-## 7. Estructura del Código
+## 6. Estructura del Repositorio
 
 ```text
 ├── src/
-│   ├── detector.py          # Envoltorio de detección YOLOv8 Nano
+│   ├── detector.py          # Inferencia y filtrado YOLOv8 Nano
 │   ├── tracker.py           # Tracker intra-cámara ByteTrack
 │   ├── recorder.py          # Registro CSV estructurado
 │   ├── visualizer.py        # Anotador de video con paleta cromática de IDs
@@ -200,6 +171,15 @@ Ambas pruebas validan la invarianza del embedding ante penumbra (-40% luz), vari
 ├── data/
 │   ├── raw/                 # Videos de entrada (cam_a.mp4 y cam_b.mp4)
 │   └── output/              # Videos renderizados y CSV auditable
-├── requirements.txt         # Lista de dependencias de Python
+├── requirements.txt         # Dependencias de Python
 └── main.py                  # CLI y orquestador principal
 ```
+
+---
+
+## 7. Referencias
+
+* **OSNet:** Zhou et al., *"Omni-Scale Feature Learning for Person Re-Identification"*, ICCV 2019.
+* **ByteTrack:** Zhang et al., *"ByteTrack: Multi-Object Tracking by Associating Every Detection Box"*, ECCV 2022.
+* **YOLOv8:** Ultralytics, *"Real-Time Flying Object and Person Detection"*, 2023.
+
